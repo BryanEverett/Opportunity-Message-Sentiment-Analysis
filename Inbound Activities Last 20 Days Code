@@ -1,0 +1,78 @@
+
+###INBOUND ACTIVITIES LAST 20 DAYS###
+
+with
+  la as (
+    select
+      o.name as opp
+      , max(t.created_date) as LastActivity
+    from
+      salesforce_fivetran.task t
+      join salesforce_fivetran.account a on
+        t.account_id = a.id
+      join salesforce_fivetran.user u on
+        t.created_by_id = u.id
+      join salesforce_fivetran.opportunity o on
+        o.account_id = a.id
+    where
+      t.created_date > (current_date - [Activity_Age|1])
+      and u.title = 'Account Executive'
+      and o.stage_name in (
+        'Negotiation'
+        , 'Proposal'
+        , 'POC'
+      )
+      and subject like '%[In]%'
+    group by
+      o.name
+  )
+select
+  (
+    u.first_name || ' ' || u.last_name
+  )
+  as Rep_Name
+  , o.name Opp_Name
+  , o.stage_name
+  , o.close_date
+  , la.LastActivity as Last_Activity
+  , count(o.name) as "Activities Previous [Activity_Age] Days" 
+  , ('https://periscopedata.my.salesforce.com/' || o.id) as Link_to_Opp
+from
+  salesforce_fivetran.task t
+  join salesforce_fivetran.account a on
+    t.account_id = a.id
+  join salesforce_fivetran.user u on
+    t.created_by_id = u.id
+  join salesforce_fivetran.opportunity o on
+    o.account_id = a.id
+  join la on
+    o.name = la.opp
+where
+  t.created_date > (current_date - [Activity_Age|1])
+  and u.title = 'Account Executive'
+  and (
+    o.stage_name in (
+      'Negotiation'
+      , 'Proposal'
+    )
+    or (
+      o.stage_name in (
+        'POC'
+      )
+      and o.close_date <= (current_date + 60)
+    )
+  )
+  and [o.close_date=close_date]
+  and subject like '%[In]%'
+group by
+  o.name
+  , u.first_name
+  , u.last_name
+  , a.name
+  , o.stage_name
+  , o.id
+  , o.close_date
+  , o.last_activity_date
+  , la.LastActivity
+order by
+  o.close_date
