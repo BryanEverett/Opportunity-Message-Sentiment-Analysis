@@ -1,0 +1,180 @@
+
+###INBOUND OPP SENTIMENT###
+select
+  (
+    u.first_name || ' ' || u.last_name
+  )
+  as Rep_Name
+  , o.name Opp_Name
+  , o.stage_name
+  , o.close_date
+  , t.created_date
+  , t.description
+  , ('https://periscopedata.my.salesforce.com/' || t.id) as link
+from
+  salesforce_fivetran.task t
+  join salesforce_fivetran.account a on
+    t.account_id = a.id
+  join salesforce_fivetran.user u on
+    t.created_by_id = u.id
+  join salesforce_fivetran.opportunity o on
+    o.account_id = a.id
+where
+  t.created_date > (current_date - [Activity_Age|1])
+  and [o.close_date=Close_Date]
+  and u.title = 'Account Executive'
+  and o.stage_name in (
+    'Negotiation'
+    , 'Proposal'
+    , 'POC'
+  )
+  and subject like '%[In]%'
+  and (
+    subject not like('%Accepted:%DT)%')
+    and t.description not like '%sisense.zoom.us%'
+    and subject not like('%Invitation:%')
+    and subject not like ('%Declined:%')
+  )
+order by
+  t.created_date desc
+
+###Python code for sentiment analysis###
+
+# SQL output is imported as a dataframe variable called 'df'
+import dateutil.parser
+import spacy
+import en_core_web_sm
+nlp = en_core_web_sm.load()
+import numpy as np
+import pandas as pd
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+sid = SentimentIntensityAnalyzer()
+
+df['close_date'] = df.close_date.apply(lambda x: x.date())
+
+
+
+
+#sentences = df['description'].apply(lambda sent in df.description.sents)
+
+df['description'] = df['description'].str.split(pat='wrote:',expand=True)[0]
+
+df['scores'] = df['description'].apply(lambda description: sid.polarity_scores(description))
+df['compound'] = df['scores'].apply(lambda score_dict: score_dict['compound'])
+df['neg'] = df['scores'].apply(lambda score_dict: score_dict['neg'])
+df['pos'] = df['scores'].apply(lambda score_dict: score_dict['pos'])
+
+df2 = df.drop(['scores'],axis=1)
+df2.sort_values('close_date')
+
+
+#import spacy
+#pos_sent = pd.DataFrame(columns=['neg_sentence','pos_score'])
+#neg_sent = pd.DataFrame(columns['pos_sentence','neg_score'])
+#docs['doc'] = df['description'].apply(nlp)
+
+#for i in df[i]['description']:
+#	for sent in df[i]['description'].sents:
+#  	temp = pd.DataFrame(columns=['sentence','scores'])
+#	 	temp.append({'sentence':sent})
+#		temp.append({'score': sid.polarity_scores(sent)
+#		temp['final'] = temp['score'].apply(lambda score_dict: score_dict['neg']
+#	neg_sent[i]['neg_score'] = temp.final.min()
+#	neg_sent[i]['neg_sentence'] = temp['sentence'].argmin(final)
+
+#for i in df[i]['description']:
+#	for sent in df[i]['description'].sents:
+#  	temp = pd.DataFrame(columns=['sentence','scores'])
+#	 	temp.append({'sentence':sent})
+#		temp.append({'score': sid.polarity_scores(sent)
+#		temp['final'] = temp['score'].apply(lambda score_dict: score_dict['pos']
+#	neg_sent[i]['pos_score'] = temp.final.max()
+#	neg_sent[i]['pos_sentence'] = temp['sentence'].argmaxfinal)
+#
+#
+#
+
+
+
+
+#for i in range(5):
+#    df = df.append({'A': i}, ignore_index=True)
+#		sid.polarity_scores(sent)
+
+
+#############################################################
+# for i in df.index:
+#     temp1 = nlp(df['description'][i])
+
+#     L = []
+#     for sent in temp1.sents:
+#         L.append(sent.text)
+       
+#     hold = pd.DataFrame(L,columns=['store1'])  
+#     if i == 0:
+#         sent_stor = pd.DataFrame(L,columns=['store1'])
+#     else:
+#         sent_stor = pd.concat([sent_stor,hold],ignore_index=True,axis=1)
+
+# sid.polarity_scores(sent_stor[0][0])
+# scores = sent_stor.apply(lambda description: sid.polarity_scores(description))
+# df['compound']  = df['scores'].apply(lambda score_dict: score_dict['compound'])
+
+# final_doc = pd.DataFrame(columns=['description','neg_sent','neg_sent_score','pos_sent','pos_sent_score'])
+# final_doc['description'] = df['description']
+
+
+
+
+
+# for column in sent_stor:
+   
+#     negagg = pd.DataFrame(columns=['negagg'])
+#     posagg = pd.DataFrame(columns=['posagg'])
+   
+#     for i in sent_stor[column].index:
+#         negagg.loc[column,'negagg'] = sid.polarity_scores(sent_stor[column][i])
+#         posagg.loc[column,'posagg'] = sid.polarity_scores(sent_stor[column][i])
+       
+#         print(sid.polarity_scores(sent_stor[column][i]))
+#         negagg
+#         print(sent_stor[column][i])
+   
+#   negagg = pd.DataFrame(columns=['values']
+#     #posagg = []
+   
+#   for i in sent_stor[column].index:
+#    negagg.append(sid.polarity_scores(sent_stor[column][i]))
+#    negagg['values'] = sent_stor.loc[:,column].apply(lambda description: sid.polarity_scores(description))
+        #posagg.append(sid.polarity_scores(sent_stor[column][i]))
+       
+#     negagg = pd.DataFrame(negagg,columns=['store1'])
+ #     negmax = max(negagg)
+#     negmaxloc = np.argmax(negagg)
+   
+#     posmax = max(posagg)
+#     posmaxloc = np.argmax(posagg)
+   
+#     final_doc.loc[column,'neg_sent_score'] = negmax
+#     final_doc.loc[column,'neg_sent'] = sent_stor[column][negmaxloc]
+#     final_doc.loc[column,'pos_sent_score'] = posmax
+#     final_doc.loc[column,'pos_sent'] = sent_stor[column][posmaxloc]
+    
+# final_doc
+                              
+###################################################
+# test = pd.DataFrame(columns=['test1'])
+# for column in sent_stor:
+# 	test = test.append(sent_stor[column])
+# # for column in test:
+# 	test['test2'] = test[0].apply(lambda description: sid.polarity_scores(description))
+                              
+                              
+#df2 = pd.DataFrame(sid.polarity_scores([df['rep_name']=='clayton martin']))
+
+# Use Sisense to visualize a dataframe, text, or an image by passing data to periscope.table(), periscope.text(), or periscope.image() respectively.
+
+# test = negagg
+
+periscope.table(df2)
