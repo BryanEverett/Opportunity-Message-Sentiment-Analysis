@@ -1,5 +1,6 @@
 
 ###INBOUND OPP SENTIMENT###
+-- Pull in data from Salesforce on incoming messages for active opportunities
 select
   (
     u.first_name || ' ' || u.last_name
@@ -9,9 +10,9 @@ select
   , o.stage_name
   , o.close_date
   , t.created_date
-  , t.description
-  , ('https://periscopedata.my.salesforce.com/' || t.id) as link
-from
+  , t.description -- where the actual body of the email lives
+  , ('https://periscopedata.my.salesforce.com/' || t.id) as link -- direct link to activity record to see the actual email
+from -- pull data from task, opportunity, account, and user tables
   salesforce_fivetran.task t
   join salesforce_fivetran.account a on
     t.account_id = a.id
@@ -20,20 +21,20 @@ from
   join salesforce_fivetran.opportunity o on
     o.account_id = a.id
 where
-  t.created_date > (current_date - [Activity_Age|1])
-  and [o.close_date=Close_Date]
+  t.created_date > (current_date - [Activity_Age|1]) -- allow manager to select date range at dashboard level
+  and [o.close_date=Close_Date] -- allow manager to select date range of close date at dashboard level
   and u.title = 'Account Executive'
-  and o.stage_name in (
+  and o.stage_name in ( -- include later stage opps
     'Negotiation'
     , 'Proposal'
     , 'POC'
   )
-  and subject like '%[In]%'
+  and subject like '%[In]%' -- focusing on inbound opps; every email coming in is tagged with [In] in subject line
   and (
-    subject not like('%Accepted:%DT)%')
-    and t.description not like '%sisense.zoom.us%'
-    and subject not like('%Invitation:%')
-    and subject not like ('%Declined:%')
+    subject not like('%Accepted:%DT)%') -- filter out calendar invite accepts
+    and t.description not like '%sisense.zoom.us%' -- filter out other calendar invite accepts and zoom meetings
+    and subject not like('%Invitation:%') -- filter out calendar invites
+    and subject not like ('%Declined:%') -- filter out calendar invite declines
   )
 order by
   t.created_date desc
@@ -41,68 +42,46 @@ order by
 ###Python code for sentiment analysis###
 
 # SQL output is imported as a dataframe variable called 'df'
-import dateutil.parser
-import spacy
+import dateutil.parser # work with datetimes
+import spacy # work in progress to be able ot rate sentiments of individual sentences
 import en_core_web_sm
-nlp = en_core_web_sm.load()
+nlp = en_core_web_sm.load() # vocab library available in Periscope
 import numpy as np
 import pandas as pd
 import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-sid = SentimentIntensityAnalyzer()
+from nltk.sentiment.vader import SentimentIntensityAnalyzer # actual sentiment analysis package
+sid = SentimentIntensityAnalyzer() # create a sentiment analysis object
 
-df['close_date'] = df.close_date.apply(lambda x: x.date())
-
-
+df['close_date'] = df.close_date.apply(lambda x: x.date()) # Python table was including 00:00:00 in close date, which is unnecessary; clean it up with this code
 
 
-#sentences = df['description'].apply(lambda sent in df.description.sents)
 
-df['description'] = df['description'].str.split(pat='wrote:',expand=True)[0]
 
+#sentences = df['description'].apply(lambda sent in df.description.sents) # in attempting to analyze sentences, this would pull out sentences from each email
+
+# email threads are segemented programmatically with each new link in the thread starting with "wrote:"; this code pulls the first email from that chain after it's split
+df['description'] = df['description'].str.split(pat='wrote:',expand=True)[0] 
+
+# use the sentiment analyzer to apply sentiment scores to each value in the "description" column
 df['scores'] = df['description'].apply(lambda description: sid.polarity_scores(description))
+
+# the sentiment analyzer generates a dictionary of values representing the proportion of positive, neutral, negative and a compound score 
+for the text analyzed; the code below pulls creates a new column with just the "Compound" score from the dictionary
 df['compound'] = df['scores'].apply(lambda score_dict: score_dict['compound'])
+
+# Similar to above, but for the "Negative" and "Positive" values found in the sentiment dictionary
 df['neg'] = df['scores'].apply(lambda score_dict: score_dict['neg'])
 df['pos'] = df['scores'].apply(lambda score_dict: score_dict['pos'])
 
+# Once the columns with negative, positive, and compound are acquired, no need for the full dictionary to remain in the final table
 df2 = df.drop(['scores'],axis=1)
+
+# Focus on opps closing soonest
 df2.sort_values('close_date')
 
 
-#import spacy
-#pos_sent = pd.DataFrame(columns=['neg_sentence','pos_score'])
-#neg_sent = pd.DataFrame(columns['pos_sentence','neg_score'])
-#docs['doc'] = df['description'].apply(nlp)
-
-#for i in df[i]['description']:
-#	for sent in df[i]['description'].sents:
-#  	temp = pd.DataFrame(columns=['sentence','scores'])
-#	 	temp.append({'sentence':sent})
-#		temp.append({'score': sid.polarity_scores(sent)
-#		temp['final'] = temp['score'].apply(lambda score_dict: score_dict['neg']
-#	neg_sent[i]['neg_score'] = temp.final.min()
-#	neg_sent[i]['neg_sentence'] = temp['sentence'].argmin(final)
-
-#for i in df[i]['description']:
-#	for sent in df[i]['description'].sents:
-#  	temp = pd.DataFrame(columns=['sentence','scores'])
-#	 	temp.append({'sentence':sent})
-#		temp.append({'score': sid.polarity_scores(sent)
-#		temp['final'] = temp['score'].apply(lambda score_dict: score_dict['pos']
-#	neg_sent[i]['pos_score'] = temp.final.max()
-#	neg_sent[i]['pos_sentence'] = temp['sentence'].argmaxfinal)
-#
-#
-#
-
-
-
-
-#for i in range(5):
-#    df = df.append({'A': i}, ignore_index=True)
-#		sid.polarity_scores(sent)
-
-
+###The code below works in Jupyter to allow me to surface the most and least positive sentence in a given 
+set of text. This could would not work in the Periscope Python editor###
 #############################################################
 # for i in df.index:
 #     temp1 = nlp(df['description'][i])
@@ -164,17 +143,6 @@ df2.sort_values('close_date')
 # final_doc
                               
 ###################################################
-# test = pd.DataFrame(columns=['test1'])
-# for column in sent_stor:
-# 	test = test.append(sent_stor[column])
-# # for column in test:
-# 	test['test2'] = test[0].apply(lambda description: sid.polarity_scores(description))
-                              
-                              
-#df2 = pd.DataFrame(sid.polarity_scores([df['rep_name']=='clayton martin']))
 
-# Use Sisense to visualize a dataframe, text, or an image by passing data to periscope.table(), periscope.text(), or periscope.image() respectively.
 
-# test = negagg
-
-periscope.table(df2)
+periscope.table(df2) # output results of the table
